@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from typing import Optional, List
 from uuid import uuid4
 
-from sqlmodel import Field, SQLModel, Relationship
+from sqlmodel import SQLModel, Field, Relationship
 
 
 def _uuid() -> str:
@@ -12,25 +14,29 @@ def _uuid() -> str:
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
-class  Thumbnail(SQLModel,table=True):
+
+class Thumbnail(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     job_id: str = Field(foreign_key="job.id")
-    style_name: str = Field(default="")
-    imagekit_url: Optional[str] = Field(default=None)
-    status: str = Field(default="pending")
-    error_message: Optional[str] = Field(default=None)
-    create_at: datetime = Field(default_factory=_now)
+
+    style_name: str = ""
+    imagekit_url: Optional[str] = None
+    status: str = "pending"
+    error_message: Optional[str] = None
+
+    created_at: datetime = Field(default_factory=_now)
 
     job: Optional["Job"] = Relationship(back_populates="thumbnails")
 
 
 class Job(SQLModel, table=True):
-    id : str = Field(default_factory=_uuid, primary_key=True)
-    prompt: str = Field(default="")
+    id: str = Field(default_factory=_uuid, primary_key=True)
+
+    prompt: str = ""
     num_thumbnails: int = Field(default=1, ge=1, le=3)
-    headshot_url: str =Field(default="")
-    status: str = Field(default="pending")
-    create_at: datetime = Field(default_factory=_now)
+    headshot_url: str = ""
+    status: str = "pending"
 
+    created_at: datetime = Field(default_factory=_now)
 
-    thumbnails: List[Thumbnail] =Relationship(back_populates="job")
+    thumbnails: List["Thumbnail"] = Relationship(back_populates="job")
