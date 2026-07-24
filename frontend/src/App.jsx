@@ -1,121 +1,280 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useMemo, useState } from 'react'
 import './App.css'
+import { createJob, subscribeToJob, uploadHeadshot } from './api'
+
+const styles = [
+  {
+    id: 'bold_dramatic',
+    label: 'Dramatic',
+    tone: 'High contrast, cinematic shadows, punchy face crop',
+  },
+  {
+    id: 'clean_minimal',
+    label: 'Clean',
+    tone: 'Bright studio look, simple layout, sharp professional polish',
+  },
+  {
+    id: 'vibrant_energetic',
+    label: 'Vibrant',
+    tone: 'Colorful, energetic, scroll-stopping YouTube energy',
+  },
+]
+
+const starterPrompts = [
+  'I built a FastAPI project from scratch',
+  'AI tools that save hours every week',
+  'How to make thumbnails people actually click',
+]
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [prompt, setPrompt] = useState(starterPrompts[0])
+  const [numThumbnails, setNumThumbnails] = useState(3)
+  const [headshotFile, setHeadshotFile] = useState(null)
+  const [headshotUrl, setHeadshotUrl] = useState('')
+  const [jobId, setJobId] = useState('')
+  const [status, setStatus] = useState('idle')
+  const [message, setMessage] = useState('Ready to build a thumbnail set.')
+  const [results, setResults] = useState([])
+
+  const activeStyles = useMemo(
+    () => styles.slice(0, Number(numThumbnails)),
+    [numThumbnails],
+  )
+
+  const previewUrl = useMemo(() => {
+    if (!headshotFile) return ''
+    return URL.createObjectURL(headshotFile)
+  }, [headshotFile])
+
+  async function handleGenerate(event) {
+    event.preventDefault()
+    setStatus('uploading')
+    setMessage('Preparing your headshot and creative brief...')
+    setResults([])
+
+    try {
+      let uploadedUrl = headshotUrl.trim()
+      if (headshotFile) {
+        const upload = await uploadHeadshot(headshotFile)
+        uploadedUrl = upload.url
+        setHeadshotUrl(uploadedUrl)
+      }
+
+      if (!uploadedUrl) {
+        throw new Error('Add a headshot file or paste an image URL.')
+      }
+
+      setStatus('generating')
+      setMessage('Generating thumbnail concepts...')
+
+      const job = await createJob({
+        prompt: prompt.trim(),
+        numThumbnails: Number(numThumbnails),
+        headshotUrl: uploadedUrl,
+      })
+
+      setJobId(job.job_id)
+      setMessage(`Job ${job.job_id} started. Waiting for thumbnails...`)
+
+      subscribeToJob(job.job_id, {
+        onThumbnailReady: (thumbnail) => {
+          setResults((current) => {
+            const next = current.filter(
+              (item) => item.thumbnail_id !== thumbnail.thumbnail_id,
+            )
+            return [...next, thumbnail]
+          })
+        },
+        onThumbnailFailed: (thumbnail) => {
+          setResults((current) => {
+            const next = current.filter(
+              (item) => item.thumbnail_id !== thumbnail.thumbnail_id,
+            )
+            return [...next, { ...thumbnail, failed: true }]
+          })
+        },
+        onJobComplete: () => {
+          setStatus('complete')
+          setMessage('Thumbnail set complete.')
+        },
+        onError: () => {
+          setStatus('error')
+          setMessage('The live job stream stopped. Check the backend logs.')
+        },
+      })
+    } catch (error) {
+      setStatus('error')
+      setMessage(error.message || 'Something went wrong while starting the job.')
+    }
+  }
+
+  async function downloadImage(url, filename) {
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      // Fallback: open in new tab if CORS prevents fetching directly
+      window.open(url, '_blank')
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
+    <main className="app-shell">
+      <section className="workspace">
+        <aside className="control-panel">
+          <div className="brand-row">
+            <div className="brand-mark">TM</div>
+            <div>
+              <p className="eyebrow">Thumbmaker Studio</p>
+              <h1>Design a click-worthy thumbnail pack.</h1>
+            </div>
+          </div>
+
+          <form className="creator-form" onSubmit={handleGenerate}>
+            <label className="field-block">
+              <span>Video idea</span>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="Describe your video topic, promise, and audience"
+                rows="5"
+                required
+              />
+            </label>
+
+            <div className="prompt-pills" aria-label="Prompt examples">
+              {starterPrompts.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setPrompt(item)}
+                  title="Use this prompt"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+
+            <label className="field-block">
+              <span>Headshot</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  setHeadshotFile(event.target.files?.[0] || null)
+                  setHeadshotUrl('')
+                }}
+              />
+            </label>
+
+            <label className="field-block compact">
+              <span>Or image URL</span>
+              <input
+                type="url"
+                value={headshotUrl}
+                onChange={(event) => {
+                  setHeadshotUrl(event.target.value)
+                  setHeadshotFile(null)
+                }}
+                placeholder="https://example.com/headshot.png"
+              />
+            </label>
+
+            <div className="count-row">
+              <span>Variations</span>
+              <div className="segmented">
+                {[1, 2, 3].map((count) => (
+                  <button
+                    key={count}
+                    type="button"
+                    className={numThumbnails === count ? 'active' : ''}
+                    onClick={() => setNumThumbnails(count)}
+                    title={`${count} thumbnail variation${count > 1 ? 's' : ''}`}
+                  >
+                    {count}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button className="generate-button" type="submit">
+              <span className="button-glyph" aria-hidden="true">+</span>
+              Generate pack
+            </button>
+          </form>
+        </aside>
+
+        <section className="preview-stage" aria-live="polite">
+          <div className="stage-header">
+            <div>
+              <p className="eyebrow">Live preview</p>
+              <h2>{status === 'complete' ? 'Ready thumbnails' : 'Creative board'}</h2>
+            </div>
+            <span className={`status-chip ${status}`}>{status}</span>
+          </div>
+
+          <div className="thumbnail-canvas">
+            <div className="thumb-background">
+              <div className="thumb-copy">
+                <span>NEW VIDEO</span>
+                <strong>{prompt || 'Your video title'}</strong>
+              </div>
+              <div className="headshot-preview">
+                {previewUrl || headshotUrl ? (
+                  <img src={previewUrl || headshotUrl} alt="Selected headshot preview" />
+                ) : (
+                  <span>Add headshot</span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="message-bar">
+            <span>{message}</span>
+            {jobId ? <code>{jobId}</code> : null}
+          </div>
+
+          <div className="style-grid">
+            {activeStyles.map((style, index) => {
+              const result = results.find((item) => item.style_name === style.id)
+              return (
+                <article className="style-card" key={style.id}>
+                  <div className={`style-swatch swatch-${index + 1}`}>
+                    {result?.imagekit_url ? (
+                      <img src={result.imagekit_url} alt={`${style.label} thumbnail`} />
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
+                  </div>
+                  <div className="style-info">
+                    <h3>{style.label}</h3>
+                    <p>{result?.failed ? result.error : style.tone}</p>
+                    {result?.imagekit_url && !result.failed && (
+                      <button
+                        type="button"
+                        className="download-link-btn"
+                        onClick={() => downloadImage(result.imagekit_url, `${style.id}.png`)}
+                        title="Download this thumbnail"
+                      >
+                        Download Image
+                      </button>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </section>
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 

@@ -5,6 +5,8 @@ engine = create_engine(DATABASE_URL, echo=False, connect_args={"check_same_threa
 
 
 def create_tables():
+    import models  # noqa: F401
+
     SQLModel.metadata.create_all(engine)
 
 

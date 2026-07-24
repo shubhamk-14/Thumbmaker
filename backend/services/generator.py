@@ -50,7 +50,7 @@ async def generate_single_thumbnail(thumbnail_id:str, prompt:str, headshot_url:s
         url  =  upload_file(
             file_bytes=image_byte,
             file_name=f"{thumbnail_id}.png",
-            folder_path=f"thumbnails/{job_id}",
+            folder=f"thumbnails/{job_id}",
 
             )
         # DB call save the url + mark uploaded
@@ -65,7 +65,8 @@ async def generate_single_thumbnail(thumbnail_id:str, prompt:str, headshot_url:s
         logger.error(f"Error generating thumbnail {thumbnail_id}: {e}")
         with Session(engine) as session:
             thumb = session.get(Thumbnail, thumbnail_id)
-            thumb.status = "error"
+            thumb.status = "failed"
+            thumb.error_message = str(e)
             session.add(thumb)
             session.commit()
 
@@ -77,6 +78,8 @@ async def process_job(job_id: str):
     # mark job as completed/failed
     with Session(engine) as session:
         job = session.get(Job, job_id)
+        if not job:
+            return
         job.status = "processing"
         prompt = job.prompt
         headshot_url = job.headshot_url
@@ -88,19 +91,20 @@ async def process_job(job_id: str):
         ).all()
         thumbnails_ids = [t.id for t in thumbnails]
 
-        tasks = [
-            generate_single_thumbnail(tid, prompt, headshot_url)
-            for tid in thumbnails_ids
-        ]
+    tasks = [
+        generate_single_thumbnail(tid, prompt, headshot_url)
+        for tid in thumbnails_ids
+    ]
 
-        await asyncio.gather(*tasks, return_exceptions=True)
+    await asyncio.gather(*tasks, return_exceptions=True)
 
-        with Session(engine) as session:
-            thumbnails = session.exec(
-            select(Thumbnail).where(Thumbnail.job_id == job_id)
-        ).all()
-            all_failed = all(t.status == "failed" for t in thumbnails)
-            job = session.get(Job, job_id)
+    with Session(engine) as session:
+        thumbnails = session.exec(
+        select(Thumbnail).where(Thumbnail.job_id == job_id)
+    ).all()
+        all_failed = all(t.status == "failed" for t in thumbnails)
+        job = session.get(Job, job_id)
+        if job:
             job.status = "failed" if all_failed else "completed"
             session.add(job)
-            session.commit() 
+            session.commit()

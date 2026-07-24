@@ -1,3 +1,4 @@
+import asyncio
 import os
 import logging
 import json
@@ -21,14 +22,14 @@ router =  APIRouter(prefix="/api")
 
 class CreateJobRequest(BaseModel):
     prompt: str
-    num_thumbnails: str
+    num_thumbnails: int
     headshot_url: str
 
 class CreateJobResponse(BaseModel):
     job_id: str
 
 class ThumbnailResponse(BaseModel):
-    id: int
+    id: str
     style_name: str
     status: str
     imagekit_url: str | None = None
@@ -36,7 +37,7 @@ class ThumbnailResponse(BaseModel):
     variants: dict | None = None
 
 class JobResponse(BaseModel):
-    id: int
+    id: str
     prompt: str
     num_thumbnails: int
     headshot_url: str
@@ -47,18 +48,23 @@ class JobResponse(BaseModel):
 @router.post("/upload-headshot")
 async def upload_headshot(file: UploadFile = File(...)):
     contents = await file.read()
-    url = upload_file(
-        file_bytes=contents,
-        file_name=file.filename or "headshot.jpg",
-        folder="headshots",
-        content_type=file.content_type or "image/png",
-    )
+    try:
+        url = upload_file(
+            file_bytes=contents,
+            file_name=file.filename or "headshot.jpg",
+            folder="headshots",
+            content_type=file.content_type or "image/png",
+        )
+    except Exception as exc:
+        logger.exception("Failed to upload headshot")
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     return {"url": url}
 
 @router.post("/jobs", response_model=CreateJobResponse)
 async def create_job(request: CreateJobRequest, session: Session = Depends(get_session)):
     if request.num_thumbnails < 1 or request.num_thumbnails > 3:
-        raise HTTPException(status_code=400, details="num_thumbnails must be between 1 and 3")
+        raise HTTPException(status_code=400, detail="num_thumbnails must be between 1 and 3")
     
     job = Job(
         prompt=request.prompt,
@@ -66,24 +72,26 @@ async def create_job(request: CreateJobRequest, session: Session = Depends(get_s
         headshot_url=request.headshot_url,
     )
     session.add(job)
+    session.commit()
+    session.refresh(job)
 
     styles = STYLE_ORDER[:request.num_thumbnails]
-    for style in style:
+    for style in styles:
         thumb = Thumbnail(job_id=job.id, style_name=style)
         session.add(thumb)
 
-        session.commit()
+    session.commit()
 
-        # Fire and forget style generation 
-        asyncio.create_task(process_job(job.id))
-        
-        return CreateJobResponse(job_id=job.id)
+    # Fire and forget thumbnail generation.
+    asyncio.create_task(process_job(job.id))
+
+    return CreateJobResponse(job_id=job.id)
     
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str, session: Session = Depends(get_session)):
     job = session.get(Job, job_id)
     if not job:
-        raise HTTPException(status_code=4004, detail="Job not found")
+        raise HTTPException(status_code=404, detail="Job not found")
     
     thumbnails = session.exec(select(Thumbnail).where(Thumbnail.job_id == job_id)).all()
 
@@ -95,20 +103,20 @@ def get_job(job_id: str, session: Session = Depends(get_session)):
                 id=t.id,
                 style_name=t.style_name,
                 status=t.status,
-                imagekit_url=t.imagekit_ur,
+                imagekit_url=t.imagekit_url,
                 error_message=t.error_message,
                 variants=variants,
             )
         )
 
-        return JobResponse(
-            id=job.id,
-            prompt=job.prompt,
-            num_thumbnails=job.num_thumbnails,
-            headshot_url=job.headshot_yrl,
-            status=job.status,
-            thumbnails=thumb_response,
-        )
+    return JobResponse(
+        id=job.id,
+        prompt=job.prompt,
+        num_thumbnails=job.num_thumbnails,
+        headshot_url=job.headshot_url,
+        status=job.status,
+        thumbnails=thumb_response,
+    )
 
 
 @router.get("/jobs/{job_id}/stream")
@@ -121,7 +129,8 @@ async def stream_job(job_id: str):
             with Session(engine) as session:
                 job = session.get(Job, job_id)
                 if not job:
-                    yield f"event: error\ndata:{json.dumps({'error': "Job not found"})}"
+                    data = json.dumps({"error": "Job not found"})
+                    yield f"event: error\ndata: {data}\n\n"
                     return
                 thumbnails = session.exec(
                     select(Thumbnail).where(Thumbnail.job_id == job_id)
@@ -130,7 +139,7 @@ async def stream_job(job_id: str):
                 for t in thumbnails:
                     if t.id in sent_thumbnails:
                         continue
-                    if t.status == "upload":
+                    if t.status == "uploaded":
                         variants = get_variants(t.imagekit_url)
                         data = json.dumps({
                             "thumbnail_id": t.id,
@@ -138,22 +147,22 @@ async def stream_job(job_id: str):
                             "imagekit_url": t.imagekit_url,
                             "variants": variants
                         })
-                        yield f"event: thumbnail ready\n data: {data}"
+                        yield f"event: thumbnail_ready\ndata: {data}\n\n"
                         sent_thumbnails.add(t.id)
 
-                    elif t.status == "failed":
+                    elif t.status in ("failed", "error"):
                         data = json.dumps({
                             "thumbnail_id": t.id,
                             "style_name": t.style_name,
                             "error": t.error_message
                         })
-                        yield f"event: thumbnail failed\n data: {data}"
+                        yield f"event: thumbnail_failed\ndata: {data}\n\n"
                         sent_thumbnails.add(t.id)
                 
-                all_done = all(t.status in ("uploaded", "failed") for t in thumbnails)
+                all_done = all(t.status in ("uploaded", "failed", "error") for t in thumbnails)
                 if all_done and len(sent_thumbnails) == len(thumbnails):
                     data = json.dumps({"job_id": job_id, "status":job.status})
-                    yield f"event : job completed\n data: {data}"
+                    yield f"event: job_complete\ndata: {data}\n\n"
                     return
 
             await asyncio.sleep(1.5)

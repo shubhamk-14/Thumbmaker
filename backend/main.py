@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import create_tables
 from routes import router
 
+import os
+from fastapi.staticfiles import StaticFiles
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
@@ -23,5 +26,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure local storage paths exist for Mock Mode
+os.makedirs("static/headshots", exist_ok=True)
+os.makedirs("static/thumbnails", exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(router)
