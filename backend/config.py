@@ -10,7 +10,7 @@ IMAGEKIT_PUBLIC_KEY = os.getenv("IMAGEKIT_PUBLIC_KEY","")
 IMAGEKIT_URL_ENDPOINT = os.getenv("IMAGEKIT_URL_ENDPOINT","")
 
 
-DATABASE_URL = f"sqlite:///{Path(__file__).with_name('thumbnailbuilder.db')}"
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{Path(__file__).with_name('thumbnailbuilder.db')}")
 
 MOCK_MODE = (
     OPENAI_API_KEY == "chai" or not OPENAI_API_KEY or
