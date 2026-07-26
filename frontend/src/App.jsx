@@ -2,6 +2,16 @@ import { useMemo, useState } from 'react'
 import './App.css'
 import { createJob, subscribeToJob, uploadHeadshot } from './api'
 
+// Convert any static URL to a path that works through the Vite dev proxy
+function normalizeImageUrl(url) {
+  if (!url) return url
+  // Convert full local URL to relative path so Vite proxy handles it
+  if (url.startsWith('http://127.0.0.1:8000/static/')) {
+    return url.replace('http://127.0.0.1:8000', '')
+  }
+  return url
+}
+
 const styles = [
   {
     id: 'bold_dramatic',
@@ -249,7 +259,7 @@ function App() {
                 <article className="style-card" key={style.id}>
                   <div className={`style-swatch swatch-${index + 1}`}>
                     {result?.imagekit_url ? (
-                      <img src={result.imagekit_url} alt={`${style.label} thumbnail`} />
+                      <img src={normalizeImageUrl(result.imagekit_url)} alt={`${style.label} thumbnail`} />
                     ) : (
                       <span>{index + 1}</span>
                     )}
@@ -261,7 +271,7 @@ function App() {
                       <button
                         type="button"
                         className="download-link-btn"
-                        onClick={() => downloadImage(result.imagekit_url, `${style.id}.png`)}
+                        onClick={() => downloadImage(normalizeImageUrl(result.imagekit_url), `${style.id}.png`)}
                         title="Download this thumbnail"
                       >
                         Download Image
