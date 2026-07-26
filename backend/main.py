@@ -29,6 +29,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+@app.get("/")
+def root():
+    return {"status": "ok", "message": "YouTube Thumbnail Generator API is running"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
