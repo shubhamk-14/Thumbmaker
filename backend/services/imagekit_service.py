@@ -16,7 +16,7 @@ def upload_file(file_bytes: bytes, file_name: str, folder: str, content_type: st
         
         # Normalize folder slash for web URL path
         web_folder = folder.replace("\\", "/")
-        return f"http://127.0.0.1:8000/static/{web_folder}/{file_name}"
+        return f"/static/{web_folder}/{file_name}"
 
     if not IMAGEKIT_PRIVATE_KEY or not IMAGEKIT_URL_ENDPOINT:
         raise RuntimeError("ImageKit credentials are missing. Check backend/.env.")

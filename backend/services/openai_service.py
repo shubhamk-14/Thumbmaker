@@ -35,8 +35,13 @@ def generate_mock_thumbnail(prompt: str, style_prompt: str, headshot_url: str) -
     # 2. Try to fetch and paste the headshot on the right side
     try:
         headshot_img = None
-        if headshot_url.startswith("http://127.0.0.1:8000/static/"):
-            # Load from local disk since it's a local static URL
+        if headshot_url.startswith("/static/"):
+            # Relative URL - load from local disk
+            local_path = headshot_url.lstrip("/")  # "static/headshots/file.jpg"
+            if os.path.exists(local_path):
+                headshot_img = Image.open(local_path)
+        elif headshot_url.startswith("http://127.0.0.1:8000/static/"):
+            # Full local URL (legacy support)
             local_path = headshot_url.replace("http://127.0.0.1:8000/static/", "static/")
             if os.path.exists(local_path):
                 headshot_img = Image.open(local_path)
